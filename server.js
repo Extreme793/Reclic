@@ -5,7 +5,14 @@ const nodemailer = require("nodemailer");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
-app.use(cors());
+
+// ── CORS — allow all origins (fixes local HTML file issue) ───────────────────
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+app.options("*", cors());
 app.use(express.json());
 
 // ── Supabase client ──────────────────────────────────────────────────────────
@@ -19,13 +26,13 @@ const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD, // Gmail App Password (not your real password)
+    pass: process.env.SMTP_PASSWORD,
   },
 });
 
 // Helper: send notification email to YOU (the business owner)
 async function sendNotification({ subject, html }) {
-  if (!process.env.SMTP_EMAIL) return; // skip if email not configured
+  if (!process.env.SMTP_EMAIL) return;
   await transporter.sendMail({
     from: `"Reclic AI" <${process.env.SMTP_EMAIL}>`,
     to: process.env.NOTIFY_EMAIL || process.env.SMTP_EMAIL,
@@ -50,26 +57,21 @@ app.get("/", (req, res) => res.json({ status: "Reclic AI Backend Running ✅" })
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. BOOK A DEMO
-// POST /api/demo
-// Body: { name, email, phone, company, message }
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/demo", async (req, res) => {
   try {
     const { name, email, phone, company, message } = req.body;
 
-    // Validate required fields
     if (!name || !email) {
       return res.status(400).json({ success: false, error: "Name and email are required." });
     }
 
-    // Save to Supabase → "demo_requests" table
     const { error: dbError } = await supabase
       .from("demo_requests")
       .insert([{ name, email, phone, company, message, created_at: new Date().toISOString() }]);
 
     if (dbError) throw dbError;
 
-    // Notify you (the owner)
     await sendNotification({
       subject: `🎯 New Demo Request from ${name}`,
       html: `
@@ -87,7 +89,6 @@ app.post("/api/demo", async (req, res) => {
       `,
     });
 
-    // Confirm to the lead
     await sendConfirmation({
       to: email,
       subject: "We got your demo request! 🤖",
@@ -113,8 +114,6 @@ app.post("/api/demo", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. CONTACT FORM
-// POST /api/contact
-// Body: { name, email, subject, message }
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/contact", async (req, res) => {
   try {
@@ -124,14 +123,12 @@ app.post("/api/contact", async (req, res) => {
       return res.status(400).json({ success: false, error: "Name, email and message are required." });
     }
 
-    // Save to Supabase → "contact_messages" table
     const { error: dbError } = await supabase
       .from("contact_messages")
       .insert([{ name, email, subject, message, created_at: new Date().toISOString() }]);
 
     if (dbError) throw dbError;
 
-    // Notify owner
     await sendNotification({
       subject: `📬 New Contact Message from ${name}`,
       html: `
@@ -148,7 +145,6 @@ app.post("/api/contact", async (req, res) => {
       `,
     });
 
-    // Auto-reply to sender
     await sendConfirmation({
       to: email,
       subject: "We received your message — Reclic AI",
@@ -170,8 +166,6 @@ app.post("/api/contact", async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. NEWSLETTER SIGNUP
-// POST /api/newsletter
-// Body: { email }
 // ─────────────────────────────────────────────────────────────────────────────
 app.post("/api/newsletter", async (req, res) => {
   try {
@@ -181,7 +175,6 @@ app.post("/api/newsletter", async (req, res) => {
       return res.status(400).json({ success: false, error: "Email is required." });
     }
 
-    // Check if already subscribed
     const { data: existing } = await supabase
       .from("newsletter_subscribers")
       .select("email")
@@ -192,20 +185,17 @@ app.post("/api/newsletter", async (req, res) => {
       return res.json({ success: true, message: "You're already subscribed! 🎉" });
     }
 
-    // Save to Supabase → "newsletter_subscribers" table
     const { error: dbError } = await supabase
       .from("newsletter_subscribers")
       .insert([{ email, subscribed_at: new Date().toISOString() }]);
 
     if (dbError) throw dbError;
 
-    // Notify owner
     await sendNotification({
       subject: `📧 New Newsletter Subscriber: ${email}`,
       html: `<div style="font-family:sans-serif;padding:24px;background:#00120B;color:white;border-radius:8px"><p>New subscriber: <strong>${email}</strong></p><p style="color:#666;font-size:12px">${new Date().toLocaleString()}</p></div>`,
     });
 
-    // Welcome email
     await sendConfirmation({
       to: email,
       subject: "Welcome to Reclic AI updates! 🤖",
